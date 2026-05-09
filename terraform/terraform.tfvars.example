@@ -1,0 +1,14 @@
+# Copy this file to terraform.tfvars and fill in your values.
+
+aws_region   = "us-east-1"
+project_name = "multi-tenant-db-agent"
+
+# Temporary password for the three test users (admin, engineer, marketing).
+# Must meet Cognito policy: 8+ chars, uppercase, lowercase, number.
+test_user_password = "TestPass1"
+
+# Rate limits (requests per hour)
+rate_limit_admins      = 100
+rate_limit_engineering = 50
+rate_limit_marketing   = 20
+rate_limit_default     = 10

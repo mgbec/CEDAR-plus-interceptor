@@ -1,0 +1,136 @@
+{
+  "name": "multi-tenant-db-agent",
+  "description": "Multi-tenant database agent with Cedar access control and rate limiting",
+  "agentCoreGateways": [
+    {
+      "name": "DataPlatformGateway",
+      "description": "Gateway for internal data platform tools",
+      "authorizerType": "CUSTOM_JWT",
+      "authorizerConfiguration": {
+        "customJWTAuthorizer": {
+          "discoveryUrl": "REPLACE_WITH_COGNITO_DISCOVERY_URL",
+          "allowedClients": ["REPLACE_WITH_COGNITO_APP_CLIENT_ID"]
+        }
+      },
+      "protocolType": "MCP",
+      "protocolConfiguration": {
+        "mcp": {
+          "searchType": "SEMANTIC",
+          "instructions": "Database tools for querying, listing, and managing records in the shared data platform."
+        }
+      },
+      "exceptionLevel": "DEBUG",
+      "policyEngineConfiguration": {
+        "policyEngineName": "DataPlatformAuth",
+        "mode": "ENFORCE"
+      },
+      "interceptorConfigurations": [
+        {
+          "interceptor": {
+            "lambda": {
+              "arn": "arn:aws:lambda:us-east-1:YOUR_ACCOUNT_ID:function:rate-limiter"
+            }
+          },
+          "interceptionPoints": ["REQUEST"],
+          "inputConfiguration": {
+            "passRequestHeaders": true
+          }
+        }
+      ],
+      "targets": [
+        {
+          "name": "DatabaseTools",
+          "targetType": "lambdaFunctionArn",
+          "lambdaArn": "arn:aws:lambda:us-east-1:YOUR_ACCOUNT_ID:function:db-tools",
+          "toolDefinitions": [
+            {
+              "name": "run_query",
+              "description": "Execute a read-only SQL query against the shared database",
+              "inputSchema": {
+                "type": "object",
+                "properties": {
+                  "sql": {
+                    "type": "string",
+                    "description": "The SQL SELECT query to execute"
+                  },
+                  "database": {
+                    "type": "string",
+                    "description": "Target database name"
+                  }
+                },
+                "required": ["sql", "database"]
+              }
+            },
+            {
+              "name": "list_tables",
+              "description": "List all tables in a database with their row counts",
+              "inputSchema": {
+                "type": "object",
+                "properties": {
+                  "database": {
+                    "type": "string",
+                    "description": "Target database name"
+                  }
+                },
+                "required": ["database"]
+              }
+            },
+            {
+              "name": "delete_records",
+              "description": "Delete records matching a condition from a table",
+              "inputSchema": {
+                "type": "object",
+                "properties": {
+                  "table": {
+                    "type": "string",
+                    "description": "Table to delete from"
+                  },
+                  "condition": {
+                    "type": "string",
+                    "description": "WHERE clause condition for deletion"
+                  },
+                  "database": {
+                    "type": "string",
+                    "description": "Target database name"
+                  }
+                },
+                "required": ["table", "condition", "database"]
+              }
+            },
+            {
+              "name": "describe_table",
+              "description": "Get schema details for a specific table",
+              "inputSchema": {
+                "type": "object",
+                "properties": {
+                  "table": {
+                    "type": "string",
+                    "description": "Table name to describe"
+                  },
+                  "database": {
+                    "type": "string",
+                    "description": "Target database name"
+                  }
+                },
+                "required": ["table", "database"]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "policyEngines": [
+    {
+      "name": "DataPlatformAuth",
+      "description": "Cedar authorization for the data platform gateway",
+      "policies": [
+        {
+          "name": "AdminFullAccess",
+          "description": "Admins can invoke all database tools without restriction",
+          "sourceFile": "policies/access-control.cedar"
+        }
+      ]
+    }
+  ]
+}

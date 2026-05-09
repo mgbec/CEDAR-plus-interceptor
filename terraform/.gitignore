@@ -1,0 +1,11 @@
+# Terraform state (don't commit to version control)
+*.tfstate
+*.tfstate.backup
+.terraform/
+.terraform.lock.hcl
+
+# Build artifacts
+.build/
+
+# Sensitive variables
+terraform.tfvars
