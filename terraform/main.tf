@@ -242,10 +242,7 @@ data "aws_iam_policy_document" "gateway_permissions" {
       "bedrock-agentcore:GetPolicyEngine",
       "bedrock-agentcore:PartiallyAuthorizeActions",
     ]
-    resources = [
-      "arn:aws:bedrock-agentcore:${local.region}:${local.account_id}:gateway/*",
-      "arn:aws:bedrock-agentcore:${local.region}:${local.account_id}:policy-engine/*",
-    ]
+    resources = ["*"]
   }
 }
 
