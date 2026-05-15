@@ -85,6 +85,11 @@ output "gateway_id" {
   value       = aws_bedrockagentcore_gateway.main.gateway_identifier
 }
 
+output "gateway_arn" {
+  description = "AgentCore Gateway ARN (needed by scripts/create-policies.sh)"
+  value       = aws_bedrockagentcore_gateway.main.arn
+}
+
 output "gateway_url" {
   description = "AgentCore Gateway URL (use this for MCP tool calls)"
   value       = aws_bedrockagentcore_gateway.main.gateway_url
@@ -92,5 +97,5 @@ output "gateway_url" {
 
 output "policy_engine_id" {
   description = "AgentCore Policy Engine ID"
-  value       = aws_bedrockagentcore_policy_engine.main.policy_engine_id
+  value       = var.policy_engine_id
 }

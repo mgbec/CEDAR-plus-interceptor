@@ -40,3 +40,17 @@ variable "rate_limit_default" {
   type        = number
   default     = 10
 }
+
+# --- Policy Engine (created via scripts/create-policies.sh) ---
+
+variable "policy_engine_arn" {
+  description = "ARN of the AgentCore Policy Engine (auto-populated by scripts/create-policies.sh into policy-arns.auto.tfvars)"
+  type        = string
+  default     = ""
+}
+
+variable "policy_engine_id" {
+  description = "ID of the AgentCore Policy Engine (auto-populated by scripts/create-policies.sh into policy-arns.auto.tfvars)"
+  type        = string
+  default     = ""
+}

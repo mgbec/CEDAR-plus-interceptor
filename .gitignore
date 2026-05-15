@@ -5,6 +5,7 @@ terraform/*.tfstate
 terraform/*.tfstate.backup
 terraform/.build/
 terraform/terraform.tfvars
+terraform/policy-arns.auto.tfvars
 
 # Python
 __pycache__/

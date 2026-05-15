@@ -1,121 +1,13 @@
 # =============================================================
-# AgentCore Gateway + Policy Engine + Policies
+# AgentCore Gateway + Gateway Target
 # =============================================================
-# Deploys the AgentCore resources that the agentcore CLI would
-# normally handle via CDK. Using Terraform instead for a single
-# unified deployment.
+# The Policy Engine and Cedar Policies are created via the
+# scripts/create-policies.sh script (API-based), since the
+# Terraform AWS provider doesn't support those resources yet.
+#
+# The script writes policy_engine_arn to policy-arns.auto.tfvars,
+# which Terraform picks up automatically.
 # =============================================================
-
-# --- Policy Engine ---
-
-resource "aws_bedrockagentcore_policy_engine" "main" {
-  name        = "DataPlatformAuth"
-  description = "Cedar authorization for the data platform gateway"
-
-  tags = {
-    Project = var.project_name
-  }
-}
-
-# --- Cedar Policies ---
-
-resource "aws_bedrockagentcore_policy" "admin_full_access" {
-  name             = "AdminFullAccess"
-  description      = "Admins can invoke all database tools without restriction"
-  policy_engine_id = aws_bedrockagentcore_policy_engine.main.policy_engine_id
-
-  definition {
-    cedar {
-      statement = "permit(principal in Group::\"admins\", action == Action::\"InvokeTool\", resource);"
-    }
-  }
-
-  validation_mode = "FAIL_ON_ANY_FINDINGS"
-}
-
-resource "aws_bedrockagentcore_policy" "engineering_run_query" {
-  name             = "EngineeringRunQuery"
-  description      = "Engineers can run queries"
-  policy_engine_id = aws_bedrockagentcore_policy_engine.main.policy_engine_id
-
-  definition {
-    cedar {
-      statement = "permit(principal in Group::\"engineering\", action == Action::\"InvokeTool\", resource == Tool::\"DatabaseTools___run_query\");"
-    }
-  }
-
-  validation_mode = "FAIL_ON_ANY_FINDINGS"
-}
-
-resource "aws_bedrockagentcore_policy" "engineering_list_tables" {
-  name             = "EngineeringListTables"
-  description      = "Engineers can list tables"
-  policy_engine_id = aws_bedrockagentcore_policy_engine.main.policy_engine_id
-
-  definition {
-    cedar {
-      statement = "permit(principal in Group::\"engineering\", action == Action::\"InvokeTool\", resource == Tool::\"DatabaseTools___list_tables\");"
-    }
-  }
-
-  validation_mode = "FAIL_ON_ANY_FINDINGS"
-}
-
-resource "aws_bedrockagentcore_policy" "engineering_describe_table" {
-  name             = "EngineeringDescribeTable"
-  description      = "Engineers can describe tables"
-  policy_engine_id = aws_bedrockagentcore_policy_engine.main.policy_engine_id
-
-  definition {
-    cedar {
-      statement = "permit(principal in Group::\"engineering\", action == Action::\"InvokeTool\", resource == Tool::\"DatabaseTools___describe_table\");"
-    }
-  }
-
-  validation_mode = "FAIL_ON_ANY_FINDINGS"
-}
-
-resource "aws_bedrockagentcore_policy" "engineering_forbid_delete" {
-  name             = "EngineeringForbidDelete"
-  description      = "Engineers cannot delete records"
-  policy_engine_id = aws_bedrockagentcore_policy_engine.main.policy_engine_id
-
-  definition {
-    cedar {
-      statement = "forbid(principal in Group::\"engineering\", action == Action::\"InvokeTool\", resource == Tool::\"DatabaseTools___delete_records\");"
-    }
-  }
-
-  validation_mode = "FAIL_ON_ANY_FINDINGS"
-}
-
-resource "aws_bedrockagentcore_policy" "marketing_list_tables" {
-  name             = "MarketingListTables"
-  description      = "Marketing can list tables"
-  policy_engine_id = aws_bedrockagentcore_policy_engine.main.policy_engine_id
-
-  definition {
-    cedar {
-      statement = "permit(principal in Group::\"marketing\", action == Action::\"InvokeTool\", resource == Tool::\"DatabaseTools___list_tables\");"
-    }
-  }
-
-  validation_mode = "FAIL_ON_ANY_FINDINGS"
-}
-
-resource "aws_bedrockagentcore_policy" "marketing_describe_table" {
-  name             = "MarketingDescribeTable"
-  description      = "Marketing can describe tables"
-  policy_engine_id = aws_bedrockagentcore_policy_engine.main.policy_engine_id
-
-  definition {
-    cedar {
-      statement = "permit(principal in Group::\"marketing\", action == Action::\"InvokeTool\", resource == Tool::\"DatabaseTools___describe_table\");"
-    }
-  }
-
-  validation_mode = "FAIL_ON_ANY_FINDINGS"
-}
 
 # --- Gateway ---
 
@@ -141,9 +33,12 @@ resource "aws_bedrockagentcore_gateway" "main" {
     }
   }
 
-  policy_engine_configuration {
-    arn  = aws_bedrockagentcore_policy_engine.main.arn
-    mode = "ENFORCE"
+  dynamic "policy_engine_configuration" {
+    for_each = var.policy_engine_arn != "" ? [1] : []
+    content {
+      arn  = var.policy_engine_arn
+      mode = "ENFORCE"
+    }
   }
 
   interceptor_configurations {
@@ -163,16 +58,6 @@ resource "aws_bedrockagentcore_gateway" "main" {
   tags = {
     Project = var.project_name
   }
-
-  depends_on = [
-    aws_bedrockagentcore_policy.admin_full_access,
-    aws_bedrockagentcore_policy.engineering_run_query,
-    aws_bedrockagentcore_policy.engineering_list_tables,
-    aws_bedrockagentcore_policy.engineering_describe_table,
-    aws_bedrockagentcore_policy.engineering_forbid_delete,
-    aws_bedrockagentcore_policy.marketing_list_tables,
-    aws_bedrockagentcore_policy.marketing_describe_table,
-  ]
 }
 
 # --- Gateway Target (Lambda) ---

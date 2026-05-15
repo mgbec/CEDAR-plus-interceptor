@@ -244,7 +244,7 @@ data "aws_iam_policy_document" "gateway_permissions" {
     ]
     resources = [
       "arn:aws:bedrock-agentcore:${local.region}:${local.account_id}:gateway/*",
-      aws_bedrockagentcore_policy_engine.main.arn,
+      "arn:aws:bedrock-agentcore:${local.region}:${local.account_id}:policy-engine/*",
     ]
   }
 }

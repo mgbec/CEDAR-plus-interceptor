@@ -84,15 +84,27 @@ multi-tenant-db-agent/
 
 ### Deploy Everything
 
+The deployment is a two-step process because the Terraform AWS provider
+doesn't support Policy Engine/Policy resources yet:
+
 ```bash
 cd terraform
 cp terraform.tfvars.example terraform.tfvars
-# Edit terraform.tfvars if needed (defaults work for testing)
 
+# Step 1: Create the Policy Engine (via AWS API)
+../scripts/create-policies.sh
+# This writes policy_engine_arn to policy-arns.auto.tfvars
+
+# Step 2: Deploy all infrastructure (reads the auto.tfvars automatically)
 terraform init
-terraform plan
 terraform apply
+
+# Step 3: Create tool-specific Cedar policies (needs the gateway ARN)
+../scripts/create-policies.sh
+# Re-running after gateway exists creates the tool-scoped policies
 ```
+
+The script is idempotent — safe to run multiple times.
 
 This single command deploys:
 - **Cognito User Pool** with three groups (admins, engineering, marketing)
