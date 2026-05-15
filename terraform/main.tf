@@ -4,7 +4,7 @@ terraform {
   required_providers {
     aws = {
       source  = "hashicorp/aws"
-      version = "~> 5.0"
+      version = ">= 5.90.0"
     }
     archive = {
       source  = "hashicorp/archive"
@@ -138,11 +138,11 @@ resource "aws_lambda_function" "rate_limiter" {
 
   environment {
     variables = {
-      RATE_LIMIT_TABLE      = aws_dynamodb_table.rate_limits.name
-      RATE_LIMIT_ADMINS     = tostring(var.rate_limit_admins)
+      RATE_LIMIT_TABLE       = aws_dynamodb_table.rate_limits.name
+      RATE_LIMIT_ADMINS      = tostring(var.rate_limit_admins)
       RATE_LIMIT_ENGINEERING = tostring(var.rate_limit_engineering)
-      RATE_LIMIT_MARKETING  = tostring(var.rate_limit_marketing)
-      RATE_LIMIT_DEFAULT    = tostring(var.rate_limit_default)
+      RATE_LIMIT_MARKETING   = tostring(var.rate_limit_marketing)
+      RATE_LIMIT_DEFAULT     = tostring(var.rate_limit_default)
     }
   }
 
@@ -153,10 +153,10 @@ resource "aws_lambda_function" "rate_limiter" {
 
 # Allow AgentCore Gateway to invoke the rate limiter
 resource "aws_lambda_permission" "rate_limiter_gateway" {
-  statement_id  = "AllowAgentCoreGatewayInvoke"
-  action        = "lambda:InvokeFunction"
-  function_name = aws_lambda_function.rate_limiter.function_name
-  principal     = "bedrock-agentcore.amazonaws.com"
+  statement_id   = "AllowAgentCoreGatewayInvoke"
+  action         = "lambda:InvokeFunction"
+  function_name  = aws_lambda_function.rate_limiter.function_name
+  principal      = "bedrock-agentcore.amazonaws.com"
   source_account = local.account_id
 }
 
@@ -187,10 +187,10 @@ resource "aws_lambda_function" "db_tools" {
 
 # Allow AgentCore Gateway to invoke the db-tools Lambda
 resource "aws_lambda_permission" "db_tools_gateway" {
-  statement_id  = "AllowAgentCoreGatewayInvoke"
-  action        = "lambda:InvokeFunction"
-  function_name = aws_lambda_function.db_tools.function_name
-  principal     = "bedrock-agentcore.amazonaws.com"
+  statement_id   = "AllowAgentCoreGatewayInvoke"
+  action         = "lambda:InvokeFunction"
+  function_name  = aws_lambda_function.db_tools.function_name
+  principal      = "bedrock-agentcore.amazonaws.com"
   source_account = local.account_id
 }
 
@@ -228,7 +228,23 @@ data "aws_iam_policy_document" "gateway_permissions" {
     actions = ["lambda:InvokeFunction"]
     resources = [
       aws_lambda_function.db_tools.arn,
+      "${aws_lambda_function.db_tools.arn}:*",
       aws_lambda_function.rate_limiter.arn,
+      "${aws_lambda_function.rate_limiter.arn}:*",
+    ]
+  }
+
+  # Allow the gateway to use the policy engine for authorization
+  statement {
+    actions = [
+      "bedrock-agentcore:AuthorizeAction",
+      "bedrock-agentcore:CheckAuthorizePermissions",
+      "bedrock-agentcore:GetPolicyEngine",
+      "bedrock-agentcore:PartiallyAuthorizeActions",
+    ]
+    resources = [
+      "arn:aws:bedrock-agentcore:${local.region}:${local.account_id}:gateway/*",
+      aws_bedrockagentcore_policy_engine.main.arn,
     ]
   }
 }

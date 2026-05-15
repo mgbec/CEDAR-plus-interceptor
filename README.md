@@ -1,6 +1,6 @@
 # Multi-Tenant Database Agent
 
-A demonstration of combining **Cedar Policies** (declarative access control) with **Gateway Interceptors** (stateful rate limiting) in AgentCore Gateway.
+A demonstration of combining **Cedar Policies** (declarative access control) with **Gateway Interceptors** (stateful rate limiting) in AgentCore Gateway — deployed entirely with Terraform.
 
 ## Architecture
 
@@ -11,7 +11,7 @@ Agent Request
 ┌─────────────────────────────────────────────────┐
 │  AgentCore Gateway (DataPlatformGateway)         │
 │                                                  │
-│  1. JWT Authorizer ─── validates token           │
+│  1. JWT Authorizer ─── validates Cognito token   │
 │  2. Cedar Policy ───── checks role permissions   │
 │  3. Rate Limiter ───── checks usage quota        │
 │  4. Tool Dispatch ──── routes to Lambda backend  │
@@ -48,102 +48,112 @@ Agent Request
    - Stateful: reads/writes counters in DynamoDB
    - Fails open: if DynamoDB is unreachable, requests pass through
 
+## Project Structure
+
+```
+multi-tenant-db-agent/
+├── terraform/
+│   ├── main.tf              # Lambdas, DynamoDB, IAM roles
+│   ├── cognito.tf           # User Pool, groups, test users
+│   ├── agentcore.tf         # Gateway, Policy Engine, Cedar policies, target
+│   ├── variables.tf         # Inputs
+│   ├── outputs.tf           # Gateway URL, Cognito endpoints, ARNs
+│   ├── terraform.tfvars.example
+│   └── .gitignore
+├── lambdas/
+│   ├── db-tools/
+│   │   └── index.py         # Mock database tool backend
+│   └── rate-limiter/
+│       └── index.py         # Request interceptor (quota enforcement)
+├── policies/
+│   └── access-control.cedar # Cedar rules (reference copy)
+├── scripts/
+│   ├── get-token.sh         # Authenticate a test user, get JWT
+│   └── test-scenarios.sh    # Full integration test suite
+└── README.md
+```
+
 ## Setup
 
 ### Prerequisites
 
 - AWS account with AgentCore access
-- `agentcore` CLI installed (`npm install -g @aws/agentcore-cli`)
 - Terraform >= 1.5
+- AWS provider >= 5.90.0 (for `aws_bedrockagentcore_*` resources)
 - `jq` and `openssl` (for the test scripts)
 
-### Step 1: Deploy Infrastructure with Terraform
+### Deploy Everything
 
 ```bash
 cd terraform
-
-# Create your variables file
 cp terraform.tfvars.example terraform.tfvars
-# Edit terraform.tfvars (defaults work fine for testing)
+# Edit terraform.tfvars if needed (defaults work for testing)
 
 terraform init
 terraform plan
 terraform apply
 ```
 
-This deploys:
+This single command deploys:
 - **Cognito User Pool** with three groups (admins, engineering, marketing)
 - **Three test users** (admin@example.com, engineer@example.com, marketing@example.com)
 - **DynamoDB table** for rate limit counters (with TTL auto-cleanup)
 - **Rate limiter Lambda** + IAM role (with DynamoDB access)
 - **DB tools Lambda** + IAM role
 - **Gateway service role** (trusted by `bedrock-agentcore.amazonaws.com`)
-- Lambda invoke permissions for the gateway
+- **AgentCore Policy Engine** with 7 Cedar policies
+- **AgentCore Gateway** (JWT auth, semantic search, interceptor)
+- **AgentCore Gateway Target** (Lambda with inline tool schema)
 
-### Step 2: Update agentcore.json with Terraform Outputs
-
-After `terraform apply`, grab the output values:
-
-```bash
-terraform output -json
-```
-
-Update `agentcore.json`:
-- Replace `REPLACE_WITH_COGNITO_DISCOVERY_URL` with the `cognito_discovery_url` output
-- Replace `REPLACE_WITH_COGNITO_APP_CLIENT_ID` with the `cognito_app_client_id` output
-- Replace the rate limiter Lambda ARN in `interceptorConfigurations`
-- Replace the db-tools Lambda ARN in `targets[].lambdaArn`
-- Replace `YOUR_ACCOUNT_ID` in any remaining ARNs
-
-### Step 3: Deploy the Gateway
+### Get Test Tokens
 
 ```bash
-cd ..
-agentcore deploy -y
-```
-
-### Step 4: Get Test Tokens
-
-```bash
-# Get a token for the engineer user
-./scripts/get-token.sh engineer@example.com
-
-# Get a token for the admin user
+# Get a token for each role
 ./scripts/get-token.sh admin@example.com
-
-# Get a token for the marketing user
+./scripts/get-token.sh engineer@example.com
 ./scripts/get-token.sh marketing@example.com
 ```
 
 The script handles the first-login password challenge automatically.
 Tokens include the `cognito:groups` claim that Cedar policies evaluate.
 
-### Step 5: Test
+### Test
 
 ```bash
-# Run the full test suite
-./scripts/test-scenarios.sh https://your-gateway-url/mcp
+# Get the gateway URL from terraform output
+GATEWAY_URL=$(terraform -chdir=terraform output -raw gateway_url)
 
-# Or test manually with curl:
+# Run the full test suite
+./scripts/test-scenarios.sh "$GATEWAY_URL"
+
+# Or test manually:
 TOKEN=$(./scripts/get-token.sh engineer@example.com)
 
 # Engineer calling run_query — should succeed
-curl -X POST https://your-gateway-url/mcp \
+curl -X POST "$GATEWAY_URL" \
   -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
   -d '{"method": "tools/call", "params": {"name": "DatabaseTools___run_query", "arguments": {"sql": "SELECT * FROM users LIMIT 10", "database": "analytics"}}}'
 
 # Engineer calling delete_records — should be DENIED by Cedar (403)
-curl -X POST https://your-gateway-url/mcp \
+curl -X POST "$GATEWAY_URL" \
   -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
   -d '{"method": "tools/call", "params": {"name": "DatabaseTools___delete_records", "arguments": {"table": "users", "condition": "id > 100", "database": "analytics"}}}'
+```
+
+### Tear Down
+
+```bash
+cd terraform
+terraform destroy
 ```
 
 ## Testing Tips
 
-- **Start with `policyEngineConfiguration.mode: "LOG_ONLY"`** to see what Cedar would deny without actually blocking. Check CloudWatch logs, then switch to `ENFORCE`.
-- **Set `exceptionLevel: "DEBUG"`** during development to get detailed error messages from the gateway.
-- **Use the MCP Inspector** (https://modelcontextprotocol.io/) pointed at your gateway URL for interactive tool testing.
-- **Check DynamoDB** to see rate limit counters accumulating in real time.
+- The gateway starts in `CREATING` status after deploy. Wait for it to reach `READY` before testing (usually 1-2 minutes).
+- Check DynamoDB to see rate limit counters accumulating in real time.
+- Use the [MCP Inspector](https://modelcontextprotocol.io/) pointed at your gateway URL for interactive tool testing.
 
 ## Key Takeaways
 

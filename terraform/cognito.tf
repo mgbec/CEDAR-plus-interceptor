@@ -84,11 +84,11 @@ resource "aws_cognito_user_pool_client" "agent" {
 
   # Include groups claim in the access token
   # This is what the gateway authorizer and Cedar policies use
-  allowed_oauth_flows          = ["code"]
-  allowed_oauth_scopes         = ["openid", "email", "profile"]
+  allowed_oauth_flows                  = ["code"]
+  allowed_oauth_scopes                 = ["openid", "email", "profile"]
   allowed_oauth_flows_user_pool_client = true
-  callback_urls                = ["http://localhost:3000/callback"]
-  supported_identity_providers = ["COGNITO"]
+  callback_urls                        = ["http://localhost:3000/callback"]
+  supported_identity_providers         = ["COGNITO"]
 
   # Prevent user existence errors from leaking info
   prevent_user_existence_errors = "ENABLED"

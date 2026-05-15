@@ -72,13 +72,25 @@ output "test_users" {
 output "next_steps" {
   description = "What to do after terraform apply"
   value       = <<-EOT
-    1. Copy ARNs into agentcore.json:
-       - rate_limiter_lambda_arn  → interceptorConfigurations[].interceptor.lambda.arn
-       - db_tools_lambda_arn     → targets[].lambdaArn
-       - cognito_discovery_url   → authorizerConfiguration.customJWTAuthorizer.discoveryUrl
-       - cognito_app_client_id   → authorizerConfiguration.customJWTAuthorizer.allowedClients[]
-    2. Run: agentcore deploy -y
-    3. Get a test token: ./scripts/get-token.sh engineer@example.com
-    4. Test with curl (see README.md)
+    1. Wait for the gateway to reach READY status (check via AWS console or CLI)
+    2. Get a test token: ./scripts/get-token.sh engineer@example.com
+    3. Test with curl against the gateway URL (see README.md)
   EOT
+}
+
+# --- AgentCore Outputs ---
+
+output "gateway_id" {
+  description = "AgentCore Gateway ID"
+  value       = aws_bedrockagentcore_gateway.main.gateway_identifier
+}
+
+output "gateway_url" {
+  description = "AgentCore Gateway URL (use this for MCP tool calls)"
+  value       = aws_bedrockagentcore_gateway.main.gateway_url
+}
+
+output "policy_engine_id" {
+  description = "AgentCore Policy Engine ID"
+  value       = aws_bedrockagentcore_policy_engine.main.policy_engine_id
 }
