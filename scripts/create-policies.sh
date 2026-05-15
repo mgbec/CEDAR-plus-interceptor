@@ -31,7 +31,7 @@ YELLOW='\033[1;33m'
 NC='\033[0m'
 
 info() { echo -e "${YELLOW}→${NC} $1"; }
-done() { echo -e "${GREEN}✓${NC} $1"; }
+ok() { echo -e "${GREEN}✓${NC} $1"; }
 
 # --- Get or create Policy Engine ---
 
@@ -60,13 +60,13 @@ if [[ "$ENGINE_ID" == "None" || -z "$ENGINE_ID" ]]; then
     [[ "$STATUS" == "ACTIVE" ]] && break
     sleep 5
   done
-  done "Policy engine ACTIVE: $ENGINE_ID"
+  ok "Policy engine ACTIVE: $ENGINE_ID"
 else
   ENGINE_ARN=$(aws bedrock-agentcore-control get-policy-engine \
     --region "$REGION" \
     --policy-engine-id "$ENGINE_ID" \
     --query "policyEngineArn" --output text)
-  done "Policy engine already exists: $ENGINE_ID"
+  ok "Policy engine already exists: $ENGINE_ID"
 fi
 
 # --- Get Gateway ARN ---
@@ -89,11 +89,11 @@ if [[ -z "$GATEWAY_ARN" ]]; then
 policy_engine_arn = "${ENGINE_ARN}"
 policy_engine_id  = "${ENGINE_ID}"
 EOF
-  done "Wrote ${VARS_FILE} (partial — no tool-specific policies yet)"
+  ok "Wrote ${VARS_FILE} (partial — no tool-specific policies yet)"
   exit 0
 fi
 
-done "Gateway ARN: $GATEWAY_ARN"
+ok "Gateway ARN: $GATEWAY_ARN"
 
 # --- Helper: create policy if it doesn't exist ---
 
@@ -110,7 +110,7 @@ create_policy() {
     --output text 2>/dev/null || echo "None")
 
   if [[ "$EXISTING" != "None" && -n "$EXISTING" ]]; then
-    done "Policy already exists: $name ($EXISTING)"
+    ok "Policy already exists: $name ($EXISTING)"
     return
   fi
 
@@ -124,7 +124,7 @@ create_policy() {
     --validation-mode IGNORE_ALL_FINDINGS \
     --output text --query "policyId" > /dev/null
 
-  done "Created: $name"
+  ok "Created: $name"
 }
 
 # --- Create Policies ---
@@ -173,6 +173,6 @@ policy_engine_arn = "${ENGINE_ARN}"
 policy_engine_id  = "${ENGINE_ID}"
 EOF
 
-done "All policies created and ${VARS_FILE} written."
+ok "All policies created and ${VARS_FILE} written."
 echo ""
 echo "Next: run 'terraform apply' to attach the policy engine to the gateway."
