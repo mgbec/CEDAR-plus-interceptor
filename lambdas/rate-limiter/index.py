@@ -66,6 +66,8 @@ def handler(event, context):
         window_key = now - (now % 3600)
         partition_key = f"{user_id}#{window_key}"
 
+        print(f"[rate-limiter] user_id={user_id}, group={group}, max={max_requests}, pk={partition_key}")
+
         # Atomic increment in DynamoDB
         response = table.update_item(
             Key={"pk": partition_key},
