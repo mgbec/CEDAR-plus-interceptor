@@ -72,27 +72,25 @@ MOCK_DATABASES = {
 
 def handler(event, context):
     """
-    The gateway sends tool invocations as JSON with:
-    {
-        "toolName": "run_query",
-        "input": { ... tool arguments ... }
-    }
+    AgentCore Gateway sends the tool arguments directly as the event.
+    The gateway handles tool routing — the Lambda just receives the arguments.
+
+    Event format: {"sql": "...", "database": "..."}
     """
     try:
-        body = json.loads(event.get("body", "{}"))
-        tool_name = body.get("toolName", "")
-        tool_input = body.get("input", {})
-
-        if tool_name == "list_tables":
-            return list_tables(tool_input)
-        elif tool_name == "describe_table":
-            return describe_table(tool_input)
-        elif tool_name == "run_query":
-            return run_query(tool_input)
-        elif tool_name == "delete_records":
-            return delete_records(tool_input)
+        # The event IS the tool arguments directly
+        # The gateway routes to this Lambda based on the tool name,
+        # so we need to figure out which tool was called from the arguments
+        if "sql" in event:
+            return run_query(event)
+        elif "table" in event and "condition" in event:
+            return delete_records(event)
+        elif "table" in event:
+            return describe_table(event)
+        elif "database" in event:
+            return list_tables(event)
         else:
-            return error_response(400, f"Unknown tool: {tool_name}")
+            return error_response(400, f"Could not determine tool from arguments: {list(event.keys())}")
 
     except Exception as e:
         return error_response(500, f"Internal error: {str(e)}")
@@ -199,13 +197,16 @@ def delete_records(params):
 
 def success_response(data):
     return {
-        "statusCode": 200,
-        "body": json.dumps(data),
+        "content": [
+            {"type": "text", "text": json.dumps(data, indent=2)}
+        ]
     }
 
 
 def error_response(status_code, message):
     return {
-        "statusCode": status_code,
-        "body": json.dumps({"error": message}),
+        "content": [
+            {"type": "text", "text": json.dumps({"error": message})}
+        ],
+        "isError": True,
     }
