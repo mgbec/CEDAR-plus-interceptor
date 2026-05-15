@@ -178,16 +178,57 @@ def main():
         for name, description, statement in tool_policies:
             create_policy(engine_id, name, description, statement)
 
-    # Step 4: Write vars file for Terraform
+        # Step 4: Attach policy engine to gateway
+        attach_policy_engine_to_gateway(engine_arn)
+
+    # Step 5: Write vars file for Terraform
     write_vars_file(engine_arn, engine_id)
 
     print()
-    print("Next steps:")
+    print("Done! The system is fully configured.")
     if not GATEWAY_ARN:
+        print()
+        print("Next steps:")
         print("  1. cd terraform && terraform apply")
-        print("  2. Re-run this script to create tool-specific policies")
-    else:
-        print("  1. cd terraform && terraform apply  (to attach policy engine to gateway)")
+        print("  2. Re-run this script to create tool-specific policies and attach the policy engine")
+
+
+def attach_policy_engine_to_gateway(engine_arn):
+    """Attach the policy engine to the gateway via UpdateGateway."""
+    info("Attaching policy engine to gateway...")
+
+    # Get gateway ID from ARN (last segment)
+    # ARN format: arn:aws:bedrock-agentcore:region:account:gateway/gateway-id
+    gateway_id = GATEWAY_ARN.split("/")[-1]
+
+    try:
+        # Get current gateway config first
+        gw = client.get_gateway(gatewayIdentifier=gateway_id)
+
+        # Check if already attached
+        existing_pe = gw.get("policyEngineConfiguration", {})
+        if existing_pe.get("arn") == engine_arn:
+            ok("Policy engine already attached to gateway")
+            return
+
+        # Update gateway with policy engine
+        client.update_gateway(
+            gatewayIdentifier=gateway_id,
+            name=gw["name"],
+            roleArn=gw["roleArn"],
+            protocolType=gw["protocolType"],
+            authorizerType=gw["authorizerType"],
+            authorizerConfiguration=gw.get("authorizerConfiguration", {}),
+            protocolConfiguration=gw.get("protocolConfiguration", {}),
+            policyEngineConfiguration={
+                "arn": engine_arn,
+                "mode": "ENFORCE",
+            },
+        )
+        ok("Policy engine attached to gateway (mode: ENFORCE)")
+    except Exception as e:
+        print(f"  WARNING: Could not attach policy engine: {e}", file=sys.stderr)
+        print("  You may need to attach it manually via the AWS console.", file=sys.stderr)
 
 
 if __name__ == "__main__":

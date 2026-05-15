@@ -82,12 +82,12 @@ output "next_steps" {
 
 output "gateway_id" {
   description = "AgentCore Gateway ID"
-  value       = aws_bedrockagentcore_gateway.main.gateway_identifier
+  value       = aws_bedrockagentcore_gateway.main.gateway_id
 }
 
 output "gateway_arn" {
   description = "AgentCore Gateway ARN (needed by scripts/create-policies.sh)"
-  value       = aws_bedrockagentcore_gateway.main.arn
+  value       = aws_bedrockagentcore_gateway.main.gateway_arn
 }
 
 output "gateway_url" {

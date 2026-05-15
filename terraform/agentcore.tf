@@ -33,15 +33,7 @@ resource "aws_bedrockagentcore_gateway" "main" {
     }
   }
 
-  dynamic "policy_engine_configuration" {
-    for_each = var.policy_engine_arn != "" ? [1] : []
-    content {
-      arn  = var.policy_engine_arn
-      mode = "ENFORCE"
-    }
-  }
-
-  interceptor_configurations {
+  interceptor_configuration {
     interceptor {
       lambda {
         arn = aws_lambda_function.rate_limiter.arn
@@ -65,69 +57,95 @@ resource "aws_bedrockagentcore_gateway" "main" {
 resource "aws_bedrockagentcore_gateway_target" "database_tools" {
   name               = "DatabaseTools"
   description        = "Lambda function target for database tools"
-  gateway_identifier = aws_bedrockagentcore_gateway.main.gateway_identifier
+  gateway_identifier = aws_bedrockagentcore_gateway.main.gateway_id
 
   target_configuration {
     mcp {
       lambda {
         lambda_arn = aws_lambda_function.db_tools.arn
         tool_schema {
-          inline_payload = jsonencode([
-            {
-              name        = "run_query"
-              description = "Execute a read-only SQL query against the shared database"
-              inputSchema = {
-                type = "object"
-                properties = {
-                  sql      = { type = "string", description = "The SQL SELECT query to execute" }
-                  database = { type = "string", description = "Target database name" }
-                }
-                required = ["sql", "database"]
+          inline_payload {
+            name        = "run_query"
+            description = "Execute a read-only SQL query against the shared database"
+            input_schema {
+              type = "object"
+              property {
+                name        = "sql"
+                type        = "string"
+                description = "The SQL SELECT query to execute"
+                required    = true
               }
-            },
-            {
-              name        = "list_tables"
-              description = "List all tables in a database with their row counts"
-              inputSchema = {
-                type = "object"
-                properties = {
-                  database = { type = "string", description = "Target database name" }
-                }
-                required = ["database"]
-              }
-            },
-            {
-              name        = "delete_records"
-              description = "Delete records matching a condition from a table"
-              inputSchema = {
-                type = "object"
-                properties = {
-                  table     = { type = "string", description = "Table to delete from" }
-                  condition = { type = "string", description = "WHERE clause condition for deletion" }
-                  database  = { type = "string", description = "Target database name" }
-                }
-                required = ["table", "condition", "database"]
-              }
-            },
-            {
-              name        = "describe_table"
-              description = "Get schema details for a specific table"
-              inputSchema = {
-                type = "object"
-                properties = {
-                  table    = { type = "string", description = "Table name to describe" }
-                  database = { type = "string", description = "Target database name" }
-                }
-                required = ["table", "database"]
+              property {
+                name        = "database"
+                type        = "string"
+                description = "Target database name"
+                required    = true
               }
             }
-          ])
+          }
+          inline_payload {
+            name        = "list_tables"
+            description = "List all tables in a database with their row counts"
+            input_schema {
+              type = "object"
+              property {
+                name        = "database"
+                type        = "string"
+                description = "Target database name"
+                required    = true
+              }
+            }
+          }
+          inline_payload {
+            name        = "delete_records"
+            description = "Delete records matching a condition from a table"
+            input_schema {
+              type = "object"
+              property {
+                name        = "table"
+                type        = "string"
+                description = "Table to delete from"
+                required    = true
+              }
+              property {
+                name        = "condition"
+                type        = "string"
+                description = "WHERE clause condition for deletion"
+                required    = true
+              }
+              property {
+                name        = "database"
+                type        = "string"
+                description = "Target database name"
+                required    = true
+              }
+            }
+          }
+          inline_payload {
+            name        = "describe_table"
+            description = "Get schema details for a specific table"
+            input_schema {
+              type = "object"
+              property {
+                name        = "table"
+                type        = "string"
+                description = "Table name to describe"
+                required    = true
+              }
+              property {
+                name        = "database"
+                type        = "string"
+                description = "Target database name"
+                required    = true
+              }
+            }
+          }
         }
       }
     }
   }
 
-  credential_provider_configurations {
-    credential_provider_type = "GATEWAY_IAM_ROLE"
+  credential_provider_configuration {
+    gateway_iam_role {}
   }
 }
