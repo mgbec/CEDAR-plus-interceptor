@@ -72,25 +72,45 @@ MOCK_DATABASES = {
 
 def handler(event, context):
     """
-    AgentCore Gateway sends the tool arguments directly as the event.
-    The gateway handles tool routing — the Lambda just receives the arguments.
+    AgentCore Gateway sends tool arguments as the event payload.
+    The tool name is available in context.client_context.custom["bedrockAgentCoreToolName"].
 
     Event format: {"sql": "...", "database": "..."}
+    Context custom: {"bedrockAgentCoreToolName": "DatabaseTools___run_query", ...}
     """
     try:
-        # The event IS the tool arguments directly
-        # The gateway routes to this Lambda based on the tool name,
-        # so we need to figure out which tool was called from the arguments
-        if "sql" in event:
-            return run_query(event)
-        elif "table" in event and "condition" in event:
-            return delete_records(event)
-        elif "table" in event:
-            return describe_table(event)
-        elif "database" in event:
+        # Get the tool name from the Lambda client context
+        tool_name = ""
+        if hasattr(context, 'client_context') and context.client_context:
+            custom = context.client_context.custom or {}
+            full_tool_name = custom.get("bedrockAgentCoreToolName", "")
+            # Strip the target prefix (e.g., "DatabaseTools___run_query" → "run_query")
+            if "___" in full_tool_name:
+                tool_name = full_tool_name.split("___", 1)[1]
+            else:
+                tool_name = full_tool_name
+
+        # Route to the correct tool handler
+        if tool_name == "list_tables":
             return list_tables(event)
+        elif tool_name == "describe_table":
+            return describe_table(event)
+        elif tool_name == "run_query":
+            return run_query(event)
+        elif tool_name == "delete_records":
+            return delete_records(event)
         else:
-            return error_response(400, f"Could not determine tool from arguments: {list(event.keys())}")
+            # Fallback: infer from arguments (for direct invocation/testing)
+            if "sql" in event:
+                return run_query(event)
+            elif "table" in event and "condition" in event:
+                return delete_records(event)
+            elif "table" in event:
+                return describe_table(event)
+            elif "database" in event:
+                return list_tables(event)
+            else:
+                return error_response(400, f"Unknown tool: '{tool_name}'. Event keys: {list(event.keys())}")
 
     except Exception as e:
         return error_response(500, f"Internal error: {str(e)}")
