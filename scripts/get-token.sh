@@ -85,5 +85,5 @@ echo "Groups: $(echo "$ID_TOKEN" | cut -d. -f2 | base64 -d 2>/dev/null | jq -r '
 echo "Expires: $(echo "$ACCESS_TOKEN" | cut -d. -f2 | base64 -d 2>/dev/null | jq -r '.exp | todate')" >&2
 echo "" >&2
 
-# Output just the ID token (gateway validates aud claim which is only in ID token)
-echo "$ID_TOKEN"
+# Output the access token (gateway requires the 'scope' claim which only exists here)
+echo "$ACCESS_TOKEN"
