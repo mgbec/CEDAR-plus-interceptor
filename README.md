@@ -55,8 +55,8 @@ multi-tenant-db-agent/
 ├── terraform/
 │   ├── main.tf              # Lambdas, DynamoDB, IAM roles
 │   ├── cognito.tf           # User Pool, groups, test users
-│   ├── agentcore.tf         # Gateway, Policy Engine, Cedar policies, target
-│   ├── variables.tf         # Inputs
+│   ├── agentcore.tf         # Gateway + Gateway Target
+│   ├── variables.tf         # Inputs (including policy engine ARN)
 │   ├── outputs.tf           # Gateway URL, Cognito endpoints, ARNs
 │   ├── terraform.tfvars.example
 │   └── .gitignore
@@ -68,6 +68,8 @@ multi-tenant-db-agent/
 ├── policies/
 │   └── access-control.cedar # Cedar rules (reference copy)
 ├── scripts/
+│   ├── create-policies.sh   # Creates Policy Engine + Cedar policies via API
+│   ├── create_policies.py   # Python implementation (boto3)
 │   ├── get-token.sh         # Authenticate a test user, get JWT
 │   └── test-scenarios.sh    # Full integration test suite
 └── README.md
@@ -78,44 +80,80 @@ multi-tenant-db-agent/
 ### Prerequisites
 
 - AWS account with AgentCore access
-- Terraform >= 1.5
-- AWS provider >= 5.90.0 (for `aws_bedrockagentcore_*` resources)
+- Terraform >= 1.5 with AWS provider >= 5.90.0
+- Python 3 with boto3 >= 1.35.0 (`pip install boto3`)
 - `jq` and `openssl` (for the test scripts)
+- AWS credentials configured (`aws configure` or environment variables)
 
-### Deploy Everything
+### Why a Two-Tool Deployment?
 
-The deployment is a two-step process because the Terraform AWS provider
-doesn't support Policy Engine/Policy resources yet:
+The Terraform AWS provider supports `aws_bedrockagentcore_gateway` and
+`aws_bedrockagentcore_gateway_target`, but does **not** yet support
+Policy Engine or Policy resources. However, the Python SDK (boto3) does.
+
+So we use:
+- **Terraform** for everything it supports (Cognito, Lambdas, DynamoDB, IAM, Gateway, Target)
+- **Python script** (`scripts/create-policies.sh`) for Policy Engine + Cedar Policies
+
+The script automatically writes the policy engine ARN into
+`terraform/policy-arns.auto.tfvars`, which Terraform picks up on the
+next `apply` — no manual copying of ARNs needed.
+
+### Deployment Steps
+
+There's a dependency cycle between the gateway and the Cedar policies:
+- The **gateway** needs the policy engine ARN (to attach it)
+- The **tool-specific policies** need the gateway ARN (Cedar requires scoping to a specific gateway)
+
+This is resolved by deploying in three passes:
 
 ```bash
+# ─── Pass 1: Create the Policy Engine ───────────────────────
+./scripts/create-policies.sh
+
+# What happens:
+#   - Creates the Policy Engine via boto3
+#   - Creates the "AdminFullAccess" policy (wildcard, no gateway ARN needed)
+#   - Writes policy_engine_arn to terraform/policy-arns.auto.tfvars
+#   - Skips tool-specific policies (no gateway yet)
+
+# ─── Pass 2: Deploy Infrastructure ─────────────────────────
 cd terraform
-cp terraform.tfvars.example terraform.tfvars
-
-# Step 1: Create the Policy Engine (via AWS API)
-../scripts/create-policies.sh
-# This writes policy_engine_arn to policy-arns.auto.tfvars
-
-# Step 2: Deploy all infrastructure (reads the auto.tfvars automatically)
-terraform init
+cp terraform.tfvars.example terraform.tfvars   # first time only
+terraform init                                  # first time only
 terraform apply
 
-# Step 3: Create tool-specific Cedar policies (needs the gateway ARN)
-../scripts/create-policies.sh
-# Re-running after gateway exists creates the tool-scoped policies
+# What happens:
+#   - Reads policy-arns.auto.tfvars automatically
+#   - Deploys Cognito, Lambdas, DynamoDB, IAM
+#   - Deploys Gateway (with policy engine attached + interceptor)
+#   - Deploys Gateway Target (Lambda with tool schema)
+
+# ─── Pass 3: Create Tool-Specific Policies ──────────────────
+cd ..
+./scripts/create-policies.sh
+
+# What happens:
+#   - Reads gateway ARN from `terraform output`
+#   - Creates 6 tool-specific Cedar policies scoped to that gateway
+#   - Skips any policies that already exist (idempotent)
 ```
 
-The script is idempotent — safe to run multiple times.
+After all three passes, the system is fully operational.
 
-This single command deploys:
-- **Cognito User Pool** with three groups (admins, engineering, marketing)
-- **Three test users** (admin@example.com, engineer@example.com, marketing@example.com)
-- **DynamoDB table** for rate limit counters (with TTL auto-cleanup)
-- **Rate limiter Lambda** + IAM role (with DynamoDB access)
-- **DB tools Lambda** + IAM role
-- **Gateway service role** (trusted by `bedrock-agentcore.amazonaws.com`)
-- **AgentCore Policy Engine** with 7 Cedar policies
-- **AgentCore Gateway** (JWT auth, semantic search, interceptor)
-- **AgentCore Gateway Target** (Lambda with inline tool schema)
+### What Gets Deployed
+
+| Resource | Deployed By | Notes |
+|----------|-------------|-------|
+| Cognito User Pool + groups + users | Terraform | 3 groups, 3 test users |
+| DynamoDB table | Terraform | Rate limit counters with TTL |
+| Rate limiter Lambda | Terraform | Gateway interceptor |
+| DB tools Lambda | Terraform | Mock database backend |
+| IAM roles | Terraform | Gateway, Lambda execution |
+| AgentCore Gateway | Terraform | JWT auth, semantic search, interceptor |
+| AgentCore Gateway Target | Terraform | Lambda with tool schema |
+| Policy Engine | Python script | Cedar authorization engine |
+| Cedar Policies (7) | Python script | Role-based access rules |
 
 ### Get Test Tokens
 
