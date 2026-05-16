@@ -87,6 +87,18 @@ multi-tenant-db-agent/
 
 ### Why a Two-Tool Deployment?
 
+> **Caveat (as of May 2026, AWS provider v6.45):** The Terraform AWS provider
+> has `aws_bedrockagentcore_gateway` and `aws_bedrockagentcore_gateway_target`
+> resources, but the following do **not work reliably**:
+>
+> - **Policy Engine / Policy resources** — don't exist in the provider at all
+> - **`interceptor_configuration` block** — accepted by Terraform but silently ignored (never sent to the API)
+> - **`policy_engine_configuration`** — not supported as a block or attribute
+> - **Gateway observability (tracing/log delivery)** — console-only, no API
+>
+> These gaps may be resolved in future provider versions. Until then, the
+> Python script handles what Terraform cannot.
+
 The Terraform AWS provider supports `aws_bedrockagentcore_gateway` and
 `aws_bedrockagentcore_gateway_target`, but does **not** yet support:
 - Policy Engine or Policy resources
