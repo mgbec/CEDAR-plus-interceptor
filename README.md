@@ -1,6 +1,6 @@
 # Multi-Tenant Database Agent
 
-A demonstration of combining **Cedar Policies** (declarative access control) with **Gateway Interceptors** (stateful rate limiting) in AgentCore Gateway — deployed entirely with Terraform.
+A demonstration of combining **Cedar Policies** (declarative access control) with **Gateway Interceptors** (stateful rate limiting) in AgentCore Gateway — deployed with Terraform and a Python script (boto3).
 
 ## Architecture
 
