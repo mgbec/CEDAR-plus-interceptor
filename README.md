@@ -15,6 +15,7 @@ Agent Request
 │  2. Cedar Policy ───── checks role permissions   │
 │  3. Rate Limiter ───── checks usage quota        │
 │  4. Tool Dispatch ──── routes to Lambda backend  │
+│  5. PII Redactor ───── redacts response by role  │
 │                                                  │
 └─────────────────────────────────────────────────┘
      │
@@ -33,7 +34,7 @@ Agent Request
 | engineering | ✅          | ✅             | ✅        | ❌ (forbid)    | 50/hr      |
 | marketing   | ✅          | ✅             | ❌        | ❌             | 20/hr      |
 
-## How the Two Layers Work Together
+## How the Three Layers Work Together
 
 1. **Cedar Policy (Layer 1 — Authorization)**
    - Evaluated first by the gateway's policy engine
@@ -42,11 +43,25 @@ Agent Request
    - Default-deny: if no `permit` matches, the request is blocked
    - `forbid` always wins over `permit` (engineers can never delete)
 
-2. **Rate Limiter Interceptor (Layer 2 — Quota Enforcement)**
+2. **Rate Limiter Interceptor (Layer 2 — Quota Enforcement, REQUEST)**
    - Runs only for requests that passed Cedar authorization
    - Answers: "Has this user exceeded their hourly budget?"
    - Stateful: reads/writes counters in DynamoDB
    - Fails open: if DynamoDB is unreachable, requests pass through
+
+3. **PII Redactor Interceptor (Layer 3 — Data Protection, RESPONSE)**
+   - Runs after the tool Lambda returns data, before the client sees it
+   - Answers: "What level of detail should this role see?"
+   - Redacts SSNs, emails, phone numbers, credit cards based on group
+   - Fails closed: if redaction errors, response is blocked (not leaked)
+
+## PII Redaction Matrix
+
+| Role        | Emails | SSNs | Phone Numbers | Credit Cards |
+|-------------|:------:|:----:|:-------------:|:------------:|
+| admins      | ✅ visible | ✅ visible | ✅ visible | ✅ visible |
+| engineering | ✅ visible | ❌ redacted | ✅ visible | ❌ redacted |
+| marketing   | ❌ redacted | ❌ redacted | ❌ redacted | ❌ redacted |
 
 ## Project Structure
 
@@ -62,9 +77,11 @@ multi-tenant-db-agent/
 │   └── .gitignore
 ├── lambdas/
 │   ├── db-tools/
-│   │   └── index.py         # Mock database tool backend
-│   └── rate-limiter/
-│       └── index.py         # Request interceptor (quota enforcement)
+│   │   └── index.py         # Mock database tool backend (includes PII test data)
+│   ├── rate-limiter/
+│   │   └── index.py         # REQUEST interceptor (quota enforcement)
+│   └── pii-redactor/
+│       └── index.py         # RESPONSE interceptor (PII redaction by role)
 ├── policies/
 │   └── access-control.cedar # Cedar rules (reference copy)
 ├── scripts/
@@ -167,7 +184,8 @@ policy engine and interceptor attachments.
 |----------|-------------|-------|
 | Cognito User Pool + groups + users | Terraform | 3 groups, 3 test users |
 | DynamoDB table | Terraform | Rate limit counters with TTL |
-| Rate limiter Lambda | Terraform | Gateway interceptor |
+| Rate limiter Lambda | Terraform | REQUEST interceptor (quota enforcement) |
+| PII redactor Lambda | Terraform | RESPONSE interceptor (data redaction) |
 | DB tools Lambda | Terraform | Mock database backend |
 | IAM roles | Terraform | Gateway, Lambda execution |
 | AgentCore Gateway | Terraform | JWT auth, semantic search (interceptor/policy attached by script) |
@@ -175,7 +193,7 @@ policy engine and interceptor attachments.
 | Policy Engine | Python script | Cedar authorization engine |
 | Cedar Policies (7) | Python script | Role-based access rules |
 | Policy engine attachment | Python script | Attaches policy engine to gateway |
-| Interceptor attachment | Python script | Attaches rate limiter to gateway |
+| Interceptor attachment | Python script | Attaches rate limiter + PII redactor to gateway |
 
 ### Get Test Tokens
 
@@ -239,6 +257,6 @@ terraform destroy
 | Concern | Mechanism | Why |
 |---------|-----------|-----|
 | Who can call what | Cedar Policy | Declarative, auditable, no code needed |
-| How much they can call | Interceptor Lambda | Requires external state (DynamoDB) |
-| Data transformation | Interceptor Lambda | Cedar can't modify payloads |
+| How much they can call | Rate Limiter (REQUEST interceptor) | Requires external state (DynamoDB) |
+| What data they can see | PII Redactor (RESPONSE interceptor) | Role-based, fails closed |
 | Compliance audit trail | Cedar + CloudTrail | Policy decisions are logged |

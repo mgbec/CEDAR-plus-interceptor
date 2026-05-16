@@ -311,8 +311,9 @@ To deploy and manage this infrastructure, you need:
 | Is the caller authenticated? | JWT validation (Cognito OIDC) | 401 Invalid Bearer token |
 | Does the token have required scopes? | allowedScopes check | 403 insufficient_scope |
 | Is this role allowed this tool? | Cedar Policy Engine | 403 Tool Execution Denied |
-| Has the user exceeded their quota? | Interceptor Lambda + DynamoDB | 429 Rate limit exceeded |
+| Has the user exceeded their quota? | REQUEST Interceptor + DynamoDB | 429 Rate limit exceeded |
 | Can the gateway invoke the Lambda? | IAM role + resource policy | 500 InternalServerException |
+| Is PII properly redacted for this role? | RESPONSE Interceptor | 500 (fails closed, blocks response) |
 
 ## Cedar Policy Evaluation Detail
 
