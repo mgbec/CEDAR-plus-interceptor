@@ -3,6 +3,11 @@ output "rate_limiter_lambda_arn" {
   value       = aws_lambda_function.rate_limiter.arn
 }
 
+output "pii_redactor_lambda_arn" {
+  description = "ARN of the PII redactor Lambda (response interceptor)"
+  value       = aws_lambda_function.pii_redactor.arn
+}
+
 output "db_tools_lambda_arn" {
   description = "ARN of the db-tools Lambda (use in agentcore.json target config)"
   value       = aws_lambda_function.db_tools.arn

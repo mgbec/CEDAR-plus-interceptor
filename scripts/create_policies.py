@@ -224,10 +224,49 @@ def attach_policy_engine_to_gateway(engine_arn):
             },
         }
 
-        # Preserve interceptor config if present
-        interceptor_config = gw.get("interceptorConfiguration", gw.get("interceptorConfigurations"))
+        # Preserve interceptor config if present, or set up both interceptors
+        interceptor_config = gw.get("interceptorConfigurations")
+        if not interceptor_config:
+            # Set up both REQUEST (rate limiter) and RESPONSE (PII redactor) interceptors
+            # Get the Lambda ARNs from terraform output
+            import subprocess
+            try:
+                rate_limiter_arn = subprocess.check_output(
+                    ["terraform", f"-chdir={TERRAFORM_DIR}", "output", "-raw", "rate_limiter_lambda_arn"],
+                    text=True, stderr=subprocess.DEVNULL
+                ).strip()
+                pii_redactor_arn = subprocess.check_output(
+                    ["terraform", f"-chdir={TERRAFORM_DIR}", "output", "-raw", "pii_redactor_lambda_arn"],
+                    text=True, stderr=subprocess.DEVNULL
+                ).strip()
+            except Exception:
+                rate_limiter_arn = ""
+                pii_redactor_arn = ""
+
+            if rate_limiter_arn and pii_redactor_arn:
+                interceptor_config = [
+                    {
+                        "interceptor": {"lambda": {"arn": rate_limiter_arn}},
+                        "interceptionPoints": ["REQUEST"],
+                        "inputConfiguration": {"passRequestHeaders": True},
+                    },
+                    {
+                        "interceptor": {"lambda": {"arn": pii_redactor_arn}},
+                        "interceptionPoints": ["RESPONSE"],
+                        "inputConfiguration": {"passRequestHeaders": True},
+                    },
+                ]
+            elif rate_limiter_arn:
+                interceptor_config = [
+                    {
+                        "interceptor": {"lambda": {"arn": rate_limiter_arn}},
+                        "interceptionPoints": ["REQUEST"],
+                        "inputConfiguration": {"passRequestHeaders": True},
+                    },
+                ]
+
         if interceptor_config:
-            update_kwargs["interceptorConfiguration"] = interceptor_config
+            update_kwargs["interceptorConfigurations"] = interceptor_config
 
         # Preserve exception level
         if gw.get("exceptionLevel"):

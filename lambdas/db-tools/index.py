@@ -175,19 +175,18 @@ def run_query(params):
     if not sql_upper.startswith("SELECT"):
         return error_response(400, "Only SELECT queries are allowed. Use delete_records for mutations.")
 
-    # Return mock results
+    # Return mock results with PII for testing redaction
     return success_response({
         "database": database,
         "query": sql,
-        "columns": ["id", "name", "value"],
+        "columns": ["id", "name", "email", "phone", "ssn"],
         "rows": [
-            [1, "example_row_1", 42],
-            [2, "example_row_2", 87],
-            [3, "example_row_3", 15],
+            [1, "Alice Johnson", "alice.johnson@company.com", "212-555-0147", "123-45-6789"],
+            [2, "Bob Smith", "bob.smith@gmail.com", "415-555-0198", "987-65-4321"],
+            [3, "Carol Williams", "carol.w@enterprise.io", "303-555-0162", "456-78-9012"],
         ],
         "row_count": 3,
         "execution_time_ms": 124,
-        "note": "Mock results — connect to a real database for production use",
     })
 
 

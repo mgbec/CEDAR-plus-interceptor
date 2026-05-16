@@ -226,6 +226,8 @@ data "aws_iam_policy_document" "gateway_permissions" {
       "${aws_lambda_function.db_tools.arn}:*",
       aws_lambda_function.rate_limiter.arn,
       "${aws_lambda_function.rate_limiter.arn}:*",
+      aws_lambda_function.pii_redactor.arn,
+      "${aws_lambda_function.pii_redactor.arn}:*",
     ]
   }
 
@@ -249,4 +251,52 @@ resource "aws_iam_policy" "gateway_permissions" {
 resource "aws_iam_role_policy_attachment" "gateway_permissions" {
   role       = aws_iam_role.gateway.name
   policy_arn = aws_iam_policy.gateway_permissions.arn
+}
+
+# =============================================================
+# Lambda — PII Redactor (Response Interceptor)
+# =============================================================
+
+data "archive_file" "pii_redactor" {
+  type        = "zip"
+  source_file = "${path.module}/../lambdas/pii-redactor/index.py"
+  output_path = "${path.module}/.build/pii-redactor.zip"
+}
+
+resource "aws_iam_role" "pii_redactor" {
+  name               = "${var.project_name}-pii-redactor"
+  assume_role_policy = data.aws_iam_policy_document.lambda_assume.json
+
+  tags = {
+    Project = var.project_name
+  }
+}
+
+resource "aws_iam_role_policy_attachment" "pii_redactor_basic" {
+  role       = aws_iam_role.pii_redactor.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+}
+
+resource "aws_lambda_function" "pii_redactor" {
+  function_name    = "${var.project_name}-pii-redactor"
+  role             = aws_iam_role.pii_redactor.arn
+  handler          = "index.handler"
+  runtime          = "python3.12"
+  timeout          = 10
+  memory_size      = 128
+  filename         = data.archive_file.pii_redactor.output_path
+  source_code_hash = data.archive_file.pii_redactor.output_base64sha256
+
+  tags = {
+    Project = var.project_name
+  }
+}
+
+# Allow AgentCore Gateway to invoke the PII redactor
+resource "aws_lambda_permission" "pii_redactor_gateway" {
+  statement_id   = "AllowAgentCoreGatewayInvoke"
+  action         = "lambda:InvokeFunction"
+  function_name  = aws_lambda_function.pii_redactor.function_name
+  principal      = "bedrock-agentcore.amazonaws.com"
+  source_account = local.account_id
 }
