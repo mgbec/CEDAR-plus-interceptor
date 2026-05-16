@@ -84,11 +84,12 @@ def handler(event, context):
         current_count = int(response["Attributes"]["request_count"])
 
         if current_count > max_requests:
-            # Block: replace the body with an error response
+            # Block: return a response directly (gateway short-circuits)
             return {
                 "interceptorOutputVersion": "1.0",
                 "mcp": {
-                    "transformedGatewayRequest": {
+                    "transformedGatewayResponse": {
+                        "statusCode": 429,
                         "body": {
                             "jsonrpc": "2.0",
                             "id": request_body.get("id", 0),

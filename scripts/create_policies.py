@@ -194,11 +194,9 @@ def main():
 
 
 def attach_policy_engine_to_gateway(engine_arn):
-    """Attach the policy engine to the gateway via UpdateGateway."""
+    """Attach the policy engine to the gateway via UpdateGateway, preserving all existing config."""
     info("Attaching policy engine to gateway...")
 
-    # Get gateway ID from ARN (last segment)
-    # ARN format: arn:aws:bedrock-agentcore:region:account:gateway/gateway-id
     gateway_id = GATEWAY_ARN.split("/")[-1]
 
     try:
@@ -207,24 +205,35 @@ def attach_policy_engine_to_gateway(engine_arn):
 
         # Check if already attached
         existing_pe = gw.get("policyEngineConfiguration", {})
-        if existing_pe.get("arn") == engine_arn:
+        if existing_pe.get("arn") == engine_arn and existing_pe.get("mode") == "ENFORCE":
             ok("Policy engine already attached to gateway")
             return
 
-        # Update gateway with policy engine
-        client.update_gateway(
-            gatewayIdentifier=gateway_id,
-            name=gw["name"],
-            roleArn=gw["roleArn"],
-            protocolType=gw["protocolType"],
-            authorizerType=gw["authorizerType"],
-            authorizerConfiguration=gw.get("authorizerConfiguration", {}),
-            protocolConfiguration=gw.get("protocolConfiguration", {}),
-            policyEngineConfiguration={
+        # Build update kwargs preserving ALL existing config
+        update_kwargs = {
+            "gatewayIdentifier": gateway_id,
+            "name": gw["name"],
+            "roleArn": gw["roleArn"],
+            "protocolType": gw["protocolType"],
+            "authorizerType": gw["authorizerType"],
+            "authorizerConfiguration": gw.get("authorizerConfiguration", {}),
+            "protocolConfiguration": gw.get("protocolConfiguration", {}),
+            "policyEngineConfiguration": {
                 "arn": engine_arn,
                 "mode": "ENFORCE",
             },
-        )
+        }
+
+        # Preserve interceptor config if present
+        interceptor_config = gw.get("interceptorConfiguration", gw.get("interceptorConfigurations"))
+        if interceptor_config:
+            update_kwargs["interceptorConfiguration"] = interceptor_config
+
+        # Preserve exception level
+        if gw.get("exceptionLevel"):
+            update_kwargs["exceptionLevel"] = gw["exceptionLevel"]
+
+        client.update_gateway(**update_kwargs)
         ok("Policy engine attached to gateway (mode: ENFORCE)")
     except Exception as e:
         print(f"  WARNING: Could not attach policy engine: {e}", file=sys.stderr)
