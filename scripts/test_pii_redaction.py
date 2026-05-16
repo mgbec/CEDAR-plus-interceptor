@@ -111,9 +111,17 @@ def main():
         "marketing@example.com": {"email": "REDACTED", "ssn": "REDACTED", "phone": "REDACTED"},
     }
 
+    # Marketing can't call run_query (Cedar denies it), so we test
+    # admin and engineer with run_query (which has PII in results),
+    # and skip marketing PII test (they can't access the data at all).
+    pii_test_users = {
+        "admin@example.com": {"email": "VISIBLE", "ssn": "VISIBLE", "phone": "VISIBLE"},
+        "engineer@example.com": {"email": "VISIBLE", "ssn": "REDACTED", "phone": "VISIBLE"},
+    }
+
     all_pass = True
 
-    for email, expect in expected.items():
+    for email, expect in pii_test_users.items():
         role = email.split("@")[0]
         print(f"--- {role} ---")
 
@@ -142,6 +150,19 @@ def main():
         # Show a snippet of the response
         print(f"  Response preview: {text[:120]}...")
         print()
+
+    # Marketing test: verify Cedar blocks them from run_query entirely
+    print("--- marketing (Cedar denial test) ---")
+    mkt_token = get_token("marketing@example.com")
+    mkt_response = call_run_query(mkt_token)
+    mkt_text = extract_text(mkt_response)
+    if "Denied" in mkt_text or "policy" in mkt_text.lower():
+        print(f"  ✅ Cedar correctly blocks marketing from run_query")
+        print(f"     (Marketing never sees PII because they can't access the tool)")
+    else:
+        print(f"  ❌ Expected Cedar denial, got: {mkt_text[:80]}")
+        all_pass = False
+    print()
 
     print("=" * 70)
     if all_pass:
