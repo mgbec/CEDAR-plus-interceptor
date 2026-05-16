@@ -88,16 +88,16 @@ multi-tenant-db-agent/
 ### Why a Two-Tool Deployment?
 
 The Terraform AWS provider supports `aws_bedrockagentcore_gateway` and
-`aws_bedrockagentcore_gateway_target`, but does **not** yet support
-Policy Engine or Policy resources. However, the Python SDK (boto3) does.
+`aws_bedrockagentcore_gateway_target`, but does **not** yet support:
+- Policy Engine or Policy resources
+- `policy_engine_configuration` on the gateway
+- `interceptor_configuration` (accepted by Terraform but silently not sent to the API)
 
 So we use:
-- **Terraform** for everything it supports (Cognito, Lambdas, DynamoDB, IAM, Gateway, Target)
-- **Python script** (`scripts/create-policies.sh`) for Policy Engine + Cedar Policies
+- **Terraform** for infrastructure (Cognito, Lambdas, DynamoDB, IAM, Gateway shell, Target)
+- **Python script** (`scripts/create-policies.sh`) for Policy Engine, Cedar Policies, and attaching the policy engine + interceptor to the gateway via `UpdateGateway`
 
-The script automatically writes the policy engine ARN into
-`terraform/policy-arns.auto.tfvars`, which Terraform picks up on the
-next `apply` — no manual copying of ARNs needed.
+**Important:** Always run the Python script *after* `terraform apply`. The `UpdateGateway` API replaces the entire config, so the script must read the current gateway state and preserve all fields when attaching the policy engine.
 
 ### Deployment Steps
 
@@ -113,7 +113,7 @@ This is resolved by deploying in three passes:
 
 # What happens:
 #   - Creates the Policy Engine via boto3
-#   - Creates the "AdminFullAccess" policy (wildcard, no gateway ARN needed)
+#   - Creates the "AdminFullAccess" policy (no gateway ARN needed yet)
 #   - Writes policy_engine_arn to terraform/policy-arns.auto.tfvars
 #   - Skips tool-specific policies (no gateway yet)
 
@@ -126,20 +126,28 @@ terraform apply
 # What happens:
 #   - Reads policy-arns.auto.tfvars automatically
 #   - Deploys Cognito, Lambdas, DynamoDB, IAM
-#   - Deploys Gateway (with policy engine attached + interceptor)
-#   - Deploys Gateway Target (Lambda with tool schema)
+#   - Deploys Gateway + Gateway Target
+#   - NOTE: policy engine and interceptor are NOT attached by Terraform
+#     (provider bugs — these fields are silently ignored)
 
-# ─── Pass 3: Create Tool-Specific Policies ──────────────────
+# ─── Pass 3: Attach Policy Engine + Interceptor + Create Policies ─
 cd ..
 ./scripts/create-policies.sh
 
 # What happens:
 #   - Reads gateway ARN from `terraform output`
 #   - Creates 6 tool-specific Cedar policies scoped to that gateway
+#   - Attaches the policy engine to the gateway (ENFORCE mode)
+#   - Attaches the interceptor Lambda to the gateway
+#   - Preserves all existing gateway config during the update
 #   - Skips any policies that already exist (idempotent)
 ```
 
 After all three passes, the system is fully operational.
+
+**If you re-run `terraform apply` later** (e.g., to update a Lambda), run
+`./scripts/create-policies.sh` again afterward — Terraform may wipe the
+policy engine and interceptor attachments.
 
 ### What Gets Deployed
 
@@ -150,10 +158,12 @@ After all three passes, the system is fully operational.
 | Rate limiter Lambda | Terraform | Gateway interceptor |
 | DB tools Lambda | Terraform | Mock database backend |
 | IAM roles | Terraform | Gateway, Lambda execution |
-| AgentCore Gateway | Terraform | JWT auth, semantic search, interceptor |
+| AgentCore Gateway | Terraform | JWT auth, semantic search (interceptor/policy attached by script) |
 | AgentCore Gateway Target | Terraform | Lambda with tool schema |
 | Policy Engine | Python script | Cedar authorization engine |
 | Cedar Policies (7) | Python script | Role-based access rules |
+| Policy engine attachment | Python script | Attaches policy engine to gateway |
+| Interceptor attachment | Python script | Attaches rate limiter to gateway |
 
 ### Get Test Tokens
 
@@ -177,20 +187,23 @@ GATEWAY_URL=$(terraform -chdir=terraform output -raw gateway_url)
 ./scripts/test-scenarios.sh "$GATEWAY_URL"
 
 # Or test manually:
-TOKEN=$(./scripts/get-token.sh engineer@example.com)
+TOKEN=$(./scripts/get-token.sh engineer@example.com 2>/dev/null)
 
-# Engineer calling run_query — should succeed
-curl -X POST "$GATEWAY_URL" \
+# Engineer calling run_query — should succeed (returns mock data)
+curl -s -X POST "$GATEWAY_URL" \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"method": "tools/call", "params": {"name": "DatabaseTools___run_query", "arguments": {"sql": "SELECT * FROM users LIMIT 10", "database": "analytics"}}}'
+  -d '{"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "DatabaseTools___run_query", "arguments": {"sql": "SELECT * FROM users LIMIT 10", "database": "analytics"}}}'
 
-# Engineer calling delete_records — should be DENIED by Cedar (403)
-curl -X POST "$GATEWAY_URL" \
+# Engineer calling delete_records — DENIED by Cedar (HTTP 200, JSON-RPC error in body)
+curl -s -X POST "$GATEWAY_URL" \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"method": "tools/call", "params": {"name": "DatabaseTools___delete_records", "arguments": {"table": "users", "condition": "id > 100", "database": "analytics"}}}'
+  -d '{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "DatabaseTools___delete_records", "arguments": {"table": "users", "condition": "id > 100", "database": "analytics"}}}'
 ```
+
+**Note:** Cedar denials return HTTP 200 with `"isError": true` and a message
+containing "Tool Execution Denied". Rate limit blocks return HTTP 429.
 
 ### Tear Down
 
@@ -202,6 +215,10 @@ terraform destroy
 ## Testing Tips
 
 - The gateway starts in `CREATING` status after deploy. Wait for it to reach `READY` before testing (usually 1-2 minutes).
+- Requests require the full JSON-RPC 2.0 envelope: `{"jsonrpc": "2.0", "id": 1, "method": "tools/call", ...}`.
+- Use the **access token** (not ID token) — the gateway requires a `scope` claim.
+- After first deploying Cognito users, set permanent passwords: `aws cognito-idp admin-set-user-password --user-pool-id <id> --username <email> --password TestPass1 --permanent`.
+- Rate limit counters use 1-hour windows. Clear DynamoDB between test runs if needed.
 - Check DynamoDB to see rate limit counters accumulating in real time.
 - Use the [MCP Inspector](https://modelcontextprotocol.io/) pointed at your gateway URL for interactive tool testing.
 
